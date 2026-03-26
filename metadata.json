@@ -1,0 +1,5 @@
+{
+  "name": "Remix: 点签智能顾问",
+  "description": "点签专属智能顾问，为您解答电子合同、法律合规及会员权益相关问题。",
+  "requestFramePermissions": ["microphone"]
+}

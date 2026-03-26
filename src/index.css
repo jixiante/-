@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-blue: #007AFF;
+  --color-brand-green: #07C160;
+  --color-brand-gold: #FDF5E6;
+  --color-brand-gold-text: #8B4513;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background-color: #F7F7F7;
+  color: #333;
+  font-family: var(--font-sans);
+}
+
+.chat-bubble-ai {
+  @apply bg-white rounded-2xl rounded-tl-none p-4 shadow-sm max-w-[85%] text-[15px] leading-relaxed;
+}
+
+.markdown-body {
+  @apply text-gray-800;
+}
+
+.markdown-body p {
+  @apply mb-2 last:mb-0;
+}
+
+.markdown-body ul, .markdown-body ol {
+  @apply mb-2 ml-4 list-outside;
+}
+
+.markdown-body ul {
+  @apply list-disc;
+}
+
+.markdown-body ol {
+  @apply list-decimal;
+}
+
+.markdown-body li {
+  @apply mb-1;
+}
+
+.markdown-body strong {
+  @apply font-bold text-brand-blue;
+}
+
+.markdown-body code {
+  @apply bg-gray-100 px-1 rounded font-mono text-sm text-pink-600;
+}
+
+.markdown-body pre {
+  @apply bg-gray-900 text-gray-100 p-3 rounded-xl font-mono text-sm my-2 overflow-x-auto;
+}
+
+.markdown-body pre code {
+  @apply bg-transparent p-0 text-gray-100;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  @apply font-bold mb-2 mt-4 first:mt-0;
+}
+
+.markdown-body h1 { @apply text-xl; }
+.markdown-body h2 { @apply text-lg; }
+.markdown-body h3 { @apply text-base; }
+
+.chat-bubble-user {
+  @apply bg-[#07C160] text-white rounded-2xl rounded-tr-none p-4 shadow-sm max-w-[85%] text-[15px] leading-relaxed;
+}
+
+.action-button {
+  @apply bg-white border-l-4 border-brand-blue rounded-lg p-4 flex justify-between items-center shadow-sm active:bg-gray-50 transition-colors;
+}
+
+.modal-overlay {
+  @apply fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4;
+}
+
+.modal-content {
+  @apply bg-white rounded-3xl w-full max-w-sm overflow-hidden relative;
+}
+
