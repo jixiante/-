@@ -102,14 +102,26 @@ const callGeminiWithRetry = async (params: any, maxRetries = 3, initialDelay = 1
                     errorStr.includes('RESOURCE_EXHAUSTED') ||
                     (error?.error && (error.error.code === 429 || error.error.status === 'RESOURCE_EXHAUSTED'));
       
+      const is503 = error?.message?.includes('503') || 
+                    error?.status === 'UNAVAILABLE' ||
+                    error?.code === 503 ||
+                    errorStr.includes('503') ||
+                    errorStr.includes('UNAVAILABLE') ||
+                    (error?.error && (error.error.code === 503 || error.error.status === 'UNAVAILABLE'));
+
       const isTokenLimit = error?.message?.includes('max tokens limit') || 
                            errorStr.includes('max tokens limit') ||
                            error?.message?.includes('MAX_TOKENS') ||
                            errorStr.includes('MAX_TOKENS');
 
-      if ((is429 || isTokenLimit) && i < maxRetries - 1) {
+      if ((is429 || is503 || isTokenLimit) && i < maxRetries - 1) {
         const delay = initialDelay * Math.pow(2, i);
-        console.warn(`Gemini API error (${is429 ? '429' : 'Token Limit'}), retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
+        let errorType = 'Unknown';
+        if (is429) errorType = '429 Rate Limit';
+        else if (is503) errorType = '503 Unavailable';
+        else if (isTokenLimit) errorType = 'Token Limit';
+        
+        console.warn(`Gemini API error (${errorType}), retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
         
         // If it's a token limit error, we might want to adjust the request if possible, 
         // but for now we'll just retry as it might be a transient model behavior or 
