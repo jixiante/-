@@ -4,10 +4,11 @@ export interface Message {
   id: string;
   role: MessageRole;
   content: string;
-  type?: 'text' | 'membership' | 'case' | 'options' | 'file';
+  type?: 'text' | 'membership' | 'case' | 'options' | 'file' | 'contract';
   options?: string[];
   suggestions?: string[];
   timestamp?: string;
+  isPremium?: boolean;
   caseData?: {
     image: string;
     title: string;
