@@ -2111,19 +2111,19 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button 
             onClick={() => setShowTaskModal(true)}
-            className="flex items-center gap-1 bg-orange-50 text-orange-600 px-2.5 py-1.5 rounded-full text-[11px] font-bold border border-orange-100 shadow-sm"
+            className="h-8 flex items-center gap-1 bg-orange-50 text-orange-600 px-2 rounded-full text-[11px] font-bold border border-orange-100 shadow-sm"
           >
             <CircleDollarSign className="w-3.5 h-3.5" />
             <span>{userPoints} 积分</span>
           </button>
           <button 
             onClick={() => setShowClearConfirmModal(true)}
-            className="p-1.5 text-gray-500 bg-gray-50 rounded-full"
+            className="w-8 h-8 text-gray-500 bg-gray-50 rounded-full flex items-center justify-center"
           >
-            <Trash2 className="w-5 h-5" />
+            <Trash2 className="w-4.5 h-4.5" />
           </button>
           <button 
             onClick={() => {
@@ -2136,19 +2136,24 @@ export default function App() {
               setEditMainScenario(userProfile.mainScenario);
               setShowProfileModal(true);
             }}
-            className="p-1.5 text-gray-600 bg-gray-50 rounded-full"
+            className="w-8 h-8 text-gray-600 bg-gray-50 rounded-full flex items-center justify-center"
           >
-            <User className="w-5 h-5" />
+            <User className="w-4.5 h-4.5" />
           </button>
           <button 
             onClick={() => setShowFeedbackModal(true)}
-            className="p-1.5 text-gray-500 bg-gray-50 rounded-full"
+            className="w-8 h-8 text-gray-500 bg-gray-50 rounded-full flex items-center justify-center"
           >
-            <MessageSquare className="w-5 h-5" />
+            <MessageSquare className="w-4.5 h-4.5" />
           </button>
-          <button className="flex items-center gap-1 bg-blue-50 text-brand-blue px-3 py-1.5 rounded-full text-[12px] font-bold">
+          <button
+            aria-label="转人工"
+            title="转人工"
+            className="relative h-8 px-2.5 rounded-full bg-gradient-to-br from-blue-50 to-sky-100 text-brand-blue border border-blue-100 shadow-sm shadow-blue-100/70 flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
+          >
             <Headphones className="w-4 h-4" />
-            <span>转人工</span>
+            <span className="text-[11px] font-bold whitespace-nowrap">转人工</span>
+            <span className="absolute -right-0.5 -top-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" />
           </button>
         </div>
       </header>
