@@ -75,7 +75,6 @@ import {
   DownloadCloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type } from "@google/genai";
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import jsPDF from 'jspdf';
@@ -83,31 +82,59 @@ import html2canvas from 'html2canvas';
 import confetti from 'canvas-confetti';
 import { Message } from './types';
 
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-
 const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 
-const callGeminiWithRetry = async (params: any, maxRetries = 3, initialDelay = 1000) => {
+type DeepSeekMessage = {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+};
+
+type DeepSeekRequest = {
+  messages: DeepSeekMessage[];
+  temperature?: number;
+  max_tokens?: number;
+  response_format?: { type: 'json_object' };
+};
+
+const callDeepSeekWithRetry = async (params: DeepSeekRequest, maxRetries = 3, initialDelay = 1000) => {
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
     try {
-      return await genAI.models.generateContent(params);
+      const response = await fetch('/api/deepseek/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const error = new Error(data?.error?.message || data?.message || `DeepSeek API request failed: ${response.status}`);
+        (error as any).status = response.status;
+        (error as any).error = data?.error || data;
+        throw error;
+      }
+
+      return {
+        text: data?.choices?.[0]?.message?.content || '',
+        raw: data
+      };
     } catch (error: any) {
       lastError = error;
       const errorStr = typeof error === 'string' ? error : JSON.stringify(error);
       const is429 = error?.message?.includes('429') || 
-                    error?.status === 'RESOURCE_EXHAUSTED' ||
+                    error?.status === 429 ||
                     error?.code === 429 ||
                     errorStr.includes('429') ||
-                    errorStr.includes('RESOURCE_EXHAUSTED') ||
-                    (error?.error && (error.error.code === 429 || error.error.status === 'RESOURCE_EXHAUSTED'));
+                    errorStr.includes('rate limit') ||
+                    (error?.error && error.error.code === 429);
       
       const is503 = error?.message?.includes('503') || 
-                    error?.status === 'UNAVAILABLE' ||
+                    error?.status === 503 ||
                     error?.code === 503 ||
                     errorStr.includes('503') ||
                     errorStr.includes('UNAVAILABLE') ||
-                    (error?.error && (error.error.code === 503 || error.error.status === 'UNAVAILABLE'));
+                    (error?.error && error.error.code === 503);
 
       const isTokenLimit = error?.message?.includes('max tokens limit') || 
                            errorStr.includes('max tokens limit') ||
@@ -121,12 +148,7 @@ const callGeminiWithRetry = async (params: any, maxRetries = 3, initialDelay = 1
         else if (is503) errorType = '503 Unavailable';
         else if (isTokenLimit) errorType = 'Token Limit';
         
-        console.warn(`Gemini API error (${errorType}), retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
-        
-        // If it's a token limit error, we might want to adjust the request if possible, 
-        // but for now we'll just retry as it might be a transient model behavior or 
-        // we can try to increase the limit in the next attempt if we had a way to modify params here.
-        // Since we can't easily modify params here without more logic, we just retry.
+        console.warn(`DeepSeek API error (${errorType}), retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
         
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
@@ -1319,14 +1341,19 @@ export default function App() {
   const fetchAIInsight = async () => {
     setIsInsightLoading(true);
     try {
-      const response = await callGeminiWithRetry({
-        model: "gemini-3-flash-preview",
-        contents: "请搜索并生成一条关于今天或最近 24 小时内 AI 领域的重大新闻或应用突破。内容应体现 AI 如何赋能行业。语言要专业且具有前瞻性，字数在 120 字以内。格式要求：直接输出内容，不要包含标题或引言。",
-        config: {
-          systemInstruction: "你是一个专业的 AI 行业分析师，擅长利用实时搜索获取最新资讯并进行深度解读。",
-          temperature: 0.7,
-          tools: [{ googleSearch: {} }]
-        }
+      const response = await callDeepSeekWithRetry({
+        messages: [
+          {
+            role: 'system',
+            content: '你是一个专业的 AI 行业分析师，擅长对 AI 领域资讯进行简洁、前瞻的行业解读。'
+          },
+          {
+            role: 'user',
+            content: '请生成一条关于 AI 领域重大新闻或应用突破的行业洞察。内容应体现 AI 如何赋能行业。语言要专业且具有前瞻性，字数在 120 字以内。格式要求：直接输出内容，不要包含标题或引言。'
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 300
       });
       
       if (response.text) {
@@ -1538,32 +1565,70 @@ export default function App() {
     
     setIsGeneratingCover(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [
-            {
-              text: `A professional, minimalist, high-end corporate contract cover design for: ${coverPrompt}. 
-                     Style: Modern, clean, elegant typography, corporate blue and gold accents, 4k resolution, high quality. 
-                     No realistic people, focus on abstract geometric shapes and professional layout.`,
-            },
-          ],
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: "3:4",
+      const response = await callDeepSeekWithRetry({
+        messages: [
+          {
+            role: 'system',
+            content: '你是企业合同封面文案设计师。只返回 JSON，不要 Markdown。'
           },
-        },
+          {
+            role: 'user',
+            content: `请为「${coverPrompt}」生成高端、简洁的合同封面文案。返回 JSON：{"title":"不超过16字的标题","subtitle":"不超过24字的副标题","tagline":"不超过18字的页脚短句"}`
+          }
+        ],
+        temperature: 0.6,
+        max_tokens: 300,
+        response_format: { type: 'json_object' }
       });
 
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          const base64Data = part.inlineData.data;
-          setGeneratedCoverUrl(`data:image/png;base64,${base64Data}`);
-          break;
-        }
+      let coverMeta = {
+        title: coverPrompt,
+        subtitle: '专业合同文件',
+        tagline: 'DianQian Contract'
+      };
+
+      try {
+        coverMeta = { ...coverMeta, ...JSON.parse(response.text || '{}') };
+      } catch {
+        // Keep the local fallback copy if the model returns non-JSON text.
       }
+
+      const escapeSvgText = (value: string) =>
+        String(value).replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&apos;'
+        }[char] || char));
+
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">
+          <defs>
+            <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#f8fbff"/>
+              <stop offset="100%" stop-color="#eaf4ff"/>
+            </linearGradient>
+            <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#007aff"/>
+              <stop offset="100%" stop-color="#10b981"/>
+            </linearGradient>
+          </defs>
+          <rect width="900" height="1200" fill="url(#bg)"/>
+          <rect x="74" y="78" width="752" height="1044" rx="46" fill="#ffffff" stroke="#dbeafe" stroke-width="2"/>
+          <circle cx="730" cy="198" r="118" fill="#dbeafe"/>
+          <circle cx="164" cy="1012" r="86" fill="#dcfce7"/>
+          <rect x="122" y="142" width="96" height="96" rx="28" fill="url(#brand)"/>
+          <text x="170" y="202" text-anchor="middle" font-size="26" font-weight="800" fill="#ffffff" font-family="Arial, sans-serif">点签</text>
+          <text x="122" y="356" font-size="56" font-weight="800" fill="#111827" font-family="Arial, sans-serif">${escapeSvgText(coverMeta.title)}</text>
+          <text x="126" y="430" font-size="30" font-weight="500" fill="#4b5563" font-family="Arial, sans-serif">${escapeSvgText(coverMeta.subtitle)}</text>
+          <rect x="126" y="520" width="648" height="2" fill="#dbeafe"/>
+          <text x="126" y="978" font-size="22" font-weight="700" fill="#007aff" font-family="Arial, sans-serif">${escapeSvgText(coverMeta.tagline)}</text>
+          <text x="126" y="1030" font-size="18" fill="#9ca3af" font-family="Arial, sans-serif">${new Date().toLocaleDateString('zh-CN')}</text>
+        </svg>
+      `;
+
+      setGeneratedCoverUrl(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
     } catch (error) {
       console.error('Error generating cover:', error);
     } finally {
@@ -1735,26 +1800,20 @@ export default function App() {
         systemInstruction = `你是点签平台的智能顾问。${userContext} 请根据用户的行业和职位背景，提供更有针对性的建议。你擅长解答电子合同、法律合规、会员权益（特别是399终身会员）等问题。回答要简洁明了，适合手机端阅读。回答最后请根据当前对话生成3个后续问题建议，每个建议应是一个完整的短句。必须以 [SUGGESTIONS] 开头，每个建议占一行，并以数字开头，例如：\n[SUGGESTIONS]\n1. 第一个建议\n2. 第二个建议\n3. 第三个建议`;
       }
 
-      const model = "gemini-3-flash-preview";
-      
-      const parts: any[] = [{ text: text || "请分析这张合同图片中的内容并给出法律建议。" }];
+      let userContent = text || "请分析这份合同内容并给出法律建议。";
       if (fileData && fileData.type.startsWith('image')) {
-        parts.push({
-          inlineData: {
-            data: fileData.data,
-            mimeType: fileData.type
-          }
-        });
+        userContent += `\n\n[用户上传了图片文件：${fileData.name}。当前 DeepSeek 文本接口无法直接读取图片内容，请提示用户粘贴图片中的合同文字，或先完成 OCR 后再审查。]`;
+      } else if (fileData) {
+        userContent += `\n\n[用户上传了文件：${fileData.name}，类型：${fileData.type || 'unknown'}。如果上文未包含文件正文，请提示用户粘贴合同文字后再分析。]`;
       }
 
-      const result = await callGeminiWithRetry({
-        model,
-        contents: [{ role: 'user', parts: parts }],
-        config: {
-          systemInstruction: systemInstruction,
-          tools: [{ googleSearch: {} }],
-          maxOutputTokens: 8192
-        }
+      const result = await callDeepSeekWithRetry({
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: userContent }
+        ],
+        temperature: 0.7,
+        max_tokens: 8192
       });
 
       const fullContent = result.text || "抱歉，我暂时无法回答这个问题。";
@@ -1824,47 +1883,20 @@ export default function App() {
         - reason: 风险原因
       `;
       
-      const model = "gemini-3-flash-preview";
-      const parts: any[] = [{ text: reviewContent || "请分析这张合同文件中的内容并给出法律建议。" }];
+      let userContent = reviewContent || "请分析这份合同文件中的内容并给出法律建议。";
       
       if (uploadedFile && (uploadedFile.type.startsWith('image') || uploadedFile.type === 'application/pdf')) {
-        parts.push({
-          inlineData: {
-            data: uploadedFile.data,
-            mimeType: uploadedFile.type
-          }
-        });
+        userContent += `\n\n[用户上传了文件：${uploadedFile.name}，类型：${uploadedFile.type || 'unknown'}。当前 DeepSeek 文本接口无法直接读取图片或 PDF 内容；如果无法看到合同正文，请在 JSON 的 summary 中说明需要用户粘贴或导入可识别文本。]`;
       }
 
-      const response = await callGeminiWithRetry({
-        model,
-        contents: [{ role: 'user', parts: parts }],
-        config: {
-          systemInstruction: systemInstruction,
-          responseMimeType: "application/json",
-          maxOutputTokens: 8192,
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              contractText: { type: Type.STRING },
-              summary: { type: Type.STRING },
-              risks: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    phrase: { type: Type.STRING },
-                    severity: { type: Type.STRING, enum: ['high', 'medium', 'low'] },
-                    suggestion: { type: Type.STRING },
-                    reason: { type: Type.STRING }
-                  },
-                  required: ['phrase', 'severity', 'suggestion', 'reason']
-                }
-              }
-            },
-            required: ['summary', 'risks']
-          }
-        }
+      const response = await callDeepSeekWithRetry({
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: userContent }
+        ],
+        temperature: 0.2,
+        max_tokens: 8192,
+        response_format: { type: 'json_object' }
       });
 
       const analysis = JSON.parse(response.text || "{}");
@@ -3231,47 +3263,56 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="modal-content p-6 max-h-[90vh] overflow-y-auto"
+              className="modal-content p-5 sm:p-6 max-w-md max-h-[90vh] overflow-y-auto"
             >
-              <button onClick={() => setShowManagerModal(false)} className="absolute top-4 right-4 p-1 text-gray-400 z-20"><X className="w-6 h-6" /></button>
+              <button onClick={() => setShowManagerModal(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full z-20 transition-colors"><X className="w-5 h-5" /></button>
               
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-600">
-                    <ClipboardCheck className="w-7 h-7" />
+              <div className="mb-6">
+                <div className="flex items-center gap-3 pr-10">
+                  <div className="w-12 h-12 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center justify-center text-emerald-600 shadow-sm">
+                    <ClipboardCheck className="w-6 h-6" />
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-gray-800">智能合同管家</h2>
                     <p className="text-xs text-gray-500">AI 自动提取节点，到期实时提醒</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="mt-5 grid grid-cols-3 gap-2 rounded-3xl bg-gray-50/90 p-2 border border-gray-100 shadow-inner">
                   <button 
                     onClick={() => { setShowManagerModal(false); handleSend("我想咨询一下关于合同管理和法律合规的问题。"); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-500/20 active:scale-95 transition-transform"
+                    className="min-h-[76px] rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white text-[12px] font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition-transform flex flex-col items-center justify-center gap-2"
                   >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    AI 咨询
+                    <span className="w-8 h-8 rounded-full bg-white/18 flex items-center justify-center">
+                      <MessageSquare className="w-4 h-4" />
+                    </span>
+                    <span className="whitespace-nowrap">人工智能咨询</span>
                   </button>
                   <button 
                     onClick={() => { setShowManagerModal(false); setShowReviewModal(true); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue text-white rounded-lg text-xs font-bold shadow-md shadow-brand-blue/20 active:scale-95 transition-transform"
+                    className="min-h-[76px] rounded-2xl bg-gradient-to-br from-sky-500 to-brand-blue text-white text-[12px] font-bold shadow-lg shadow-brand-blue/20 active:scale-95 transition-transform flex flex-col items-center justify-center gap-2"
                   >
-                    <Upload className="w-3.5 h-3.5" />
-                    智能导入
+                    <span className="w-8 h-8 rounded-full bg-white/18 flex items-center justify-center">
+                      <Upload className="w-4 h-4" />
+                    </span>
+                    <span className="whitespace-nowrap">智能导入</span>
                   </button>
                   <button 
                     onClick={() => {
                       setIsBatchMode(!isBatchMode);
                       setSelectedContractIds([]);
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    className={`min-h-[76px] rounded-2xl text-[12px] font-bold active:scale-95 transition-all flex flex-col items-center justify-center gap-2 ${
                       isBatchMode 
-                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
-                        : 'bg-gray-100 text-gray-600 border border-transparent hover:bg-gray-200'
+                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
+                        : 'bg-white text-gray-700 border border-gray-100 shadow-sm hover:bg-gray-50'
                     }`}
                   >
-                    {isBatchMode ? '取消批量' : '批量操作'}
+                    <span className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      isBatchMode ? 'bg-white/20' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {isBatchMode ? <CheckSquare className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+                    </span>
+                    <span className="whitespace-nowrap">{isBatchMode ? '取消批量' : '批量操作'}</span>
                   </button>
                 </div>
               </div>
